@@ -1,45 +1,25 @@
 import { useState, useEffect } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Radio, Globe, Clock } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw } from 'lucide-react'
 
 function App() {
   const [markets, setMarkets] = useState({ wti: null, gold: null, vix: null, btc: null, btcChange: 0 })
   const [earthquakes, setEarthquakes] = useState([])
+  const [news, setNews] = useState([])
   const [lastUpdate, setLastUpdate] = useState(null)
   const [connected, setConnected] = useState(false)
+  const [loadingNews, setLoadingNews] = useState(false)
 
   useEffect(() => {
-    // 初始加载市场数据
     fetchMarkets()
     fetchEarthquakes()
+    fetchNews()
 
-    // SSE 连接
-    const eventSource = new EventSource('/api/stream')
-    
-    eventSource.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-      if (data.type === 'connected') {
-        setConnected(true)
-      } else if (data.type === 'heartbeat' && data.markets) {
-        setMarkets(prev => ({ ...prev, ...data.markets }))
-        setLastUpdate(new Date())
-      }
-    }
-
-    eventSource.onerror = () => {
-      setConnected(false)
-      eventSource.close()
-    }
-
-    // 定时刷新 (备用)
     const interval = setInterval(() => {
       fetchMarkets()
+      fetchNews()
     }, 60000)
 
-    return () => {
-      eventSource.close()
-      clearInterval(interval)
-    }
+    return () => clearInterval(interval)
   }, [])
 
   const fetchMarkets = async () => {
@@ -63,10 +43,46 @@ function App() {
     }
   }
 
+  const fetchNews = async () => {
+    setLoadingNews(true)
+    try {
+      const res = await fetch('/api/news')
+      const data = await res.json()
+      setNews(data.news || [])
+    } catch (e) {
+      console.error('Failed to fetch news:', e)
+    }
+    setLoadingNews(false)
+  }
+
   const formatTime = (ts) => {
     if (!ts) return '--:--'
     const d = new Date(ts)
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const now = new Date()
+    const diff = now - d
+    
+    // 小于1小时显示分钟
+    if (diff < 3600000) {
+      const mins = Math.floor(diff / 60000)
+      return `${mins}分钟前`
+    }
+    // 小于24小时显示小时
+    if (diff < 86400000) {
+      const hours = Math.floor(diff / 3600000)
+      return `${hours}小时前`
+    }
+    // 否则显示日期
+    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  }
+
+  const getSourceColor = (source) => {
+    const colors = {
+      'Reuters': 'bg-orange-600',
+      'BBC': 'bg-green-600',
+      'GDELT': 'bg-blue-600',
+      'Al Jazeera': 'bg-purple-600'
+    }
+    return colors[source] || 'bg-gray-600'
   }
 
   return (
@@ -79,17 +95,13 @@ function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold">CrisisWatch</h1>
-            <p className="text-xs text-gray-500">伊朗局势实时情报</p>
+            <p className="text-xs text-gray-500">美伊战争实时情报</p>
           </div>
         </div>
         
         <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${connected ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
-            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></span>
-            {connected ? 'LIVE' : 'OFFLINE'}
-          </div>
           <span className="text-xs text-gray-500">
-            更新: {lastUpdate ? formatTime(lastUpdate) : '--:--'}
+            更新: {lastUpdate ? formatTime(lastUpdate.getTime()) : '--:--'}
           </span>
         </div>
       </header>
@@ -125,6 +137,58 @@ function App() {
           change={markets.btcChange}
           color="orange"
         />
+      </div>
+
+      {/* News Section */}
+      <div className="bg-[#141414] rounded-xl p-4 border border-gray-800 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Newspaper className="w-5 h-5 text-red-400" />
+            <h2 className="font-semibold">最新消息</h2>
+            <span className="text-xs text-gray-500">({news.length}条)</span>
+          </div>
+          <button 
+            onClick={fetchNews}
+            disabled={loadingNews}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3 h-3 ${loadingNews ? 'animate-spin' : ''}`} />
+            刷新
+          </button>
+        </div>
+        
+        {news.length === 0 ? (
+          <p className="text-gray-500 text-sm">暂无新闻数据</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {news.map((item, i) => (
+              <a 
+                key={item.id || i} 
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-3 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-medium text-gray-200 group-hover:text-red-400 transition-colors line-clamp-2">
+                      {item.title}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className={`px-2 py-0.5 text-xs rounded ${getSourceColor(item.source)} text-white`}>
+                        {item.source}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatTime(item.timestamp)}
+                      </span>
+                    </div>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-gray-600 group-hover:text-gray-400 flex-shrink-0 mt-1" />
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Main Content */}
@@ -163,16 +227,18 @@ function App() {
           </div>
           
           <div className="grid grid-cols-2 gap-3">
+            <SourceItem label="Reuters" status="active" />
+            <SourceItem label="BBC News" status="active" />
+            <SourceItem label="GDELT" status="active" />
             <SourceItem label="USGS 地震" status="active" />
             <SourceItem label="Yahoo Finance" status={markets.wti ? 'active' : 'inactive'} />
             <SourceItem label="CoinGecko" status={markets.btc ? 'active' : 'inactive'} />
-            <SourceItem label="SSE 推送" status={connected ? 'active' : 'inactive'} />
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-800">
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Clock className="w-3 h-3" />
-              <span>数据刷新间隔: 市场数据 60s | 地震 30s</span>
+              <span>数据刷新间隔: 60s</span>
             </div>
           </div>
         </div>
