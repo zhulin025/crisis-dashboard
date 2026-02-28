@@ -1,24 +1,5 @@
-// /api/news.js - 新闻聚合 (Reuters, BBC, GDELT) + 翻译
+// /api/news.js - 新闻聚合 (Reuters, BBC, GDELT)
 export const runtime = 'nodejs';
-
-// 翻译函数 (使用 MyMemory 免费 API)
-async function translateToChinese(text) {
-  if (!text) return text;
-  try {
-    const encoded = encodeURIComponent(text);
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encoded}&langpair=en|zh`,
-      { headers: { 'User-Agent': 'Mozilla/5.0' } }
-    );
-    const data = await res.json();
-    if (data.responseData?.translatedText) {
-      return data.responseData.translatedText;
-    }
-  } catch (e) {
-    // 翻译失败返回原文
-  }
-  return text;
-}
 
 // 清理标题中的特殊字符
 function cleanTitle(title) {
@@ -48,19 +29,18 @@ export async function GET() {
       const gdeltData = await gdeltRes.json();
       
       if (gdeltData.articles) {
-        for (const article of gdeltData.articles) {
+        gdeltData.articles.forEach(article => {
           const title = cleanTitle(article.title);
-          const titleZh = await translateToChinese(title);
-          news.push({
-            id: `gdelt-${article.url}`,
-            title: titleZh || title,
-            titleEn: title,
-            url: article.url,
-            source: article.domain || 'GDELT',
-            timestamp: new Date(article.seendate).getTime(),
-            domain: article.domain
-          });
-        }
+          if (title) {
+            news.push({
+              id: `gdelt-${article.url}`,
+              title: title,
+              url: article.url,
+              source: article.domain || 'GDELT',
+              timestamp: new Date(article.seendate).getTime()
+            });
+          }
+        });
       }
     } catch (e) {
       console.error('GDELT error:', e);
@@ -75,7 +55,7 @@ export async function GET() {
       const reutersText = await reutersRes.text();
       
       const itemMatches = reutersText.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
-      for (const item of itemMatches.slice(0, 15)) {
+      itemMatches.slice(0, 15).forEach(item => {
         const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/);
         const linkMatch = item.match(/<link>(.*?)<\/link>/);
         const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
@@ -86,22 +66,17 @@ export async function GET() {
           const desc = descMatch ? cleanTitle(descMatch[1] || descMatch[2]) : '';
           
           if (title && (title.toLowerCase().includes('iran') || title.toLowerCase().includes('israel') || title.toLowerCase().includes('middle east') || title.toLowerCase().includes('oil') || title.toLowerCase().includes('war'))) {
-            const titleZh = await translateToChinese(title);
-            const descZh = desc ? await translateToChinese(desc) : '';
-            
             news.push({
               id: `reuters-${linkMatch[1]}`,
-              title: titleZh || title,
-              titleEn: title,
-              description: descZh || desc,
-              descriptionEn: desc,
+              title: title,
+              description: desc,
               url: linkMatch[1],
               source: 'Reuters',
               timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
             });
           }
         }
-      }
+      });
     } catch (e) {
       console.error('Reuters error:', e);
     }
@@ -115,7 +90,7 @@ export async function GET() {
       const bbcText = await bbcRes.text();
       
       const bbcItems = bbcText.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
-      for (const item of bbcItems.slice(0, 15)) {
+      bbcItems.slice(0, 15).forEach(item => {
         const titleMatch = item.match(/<title>(.*?)<\/title>/);
         const linkMatch = item.match(/<link>(.*?)<\/link>/);
         const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
@@ -126,22 +101,17 @@ export async function GET() {
           const desc = descMatch ? cleanTitle(descMatch[1]) : '';
           
           if (title && (title.toLowerCase().includes('iran') || title.toLowerCase().includes('israel') || title.toLowerCase().includes('middle east') || title.toLowerCase().includes('war'))) {
-            const titleZh = await translateToChinese(title);
-            const descZh = desc ? await translateToChinese(desc) : '';
-            
             news.push({
               id: `bbc-${linkMatch[1]}`,
-              title: titleZh || title,
-              titleEn: title,
-              description: descZh || desc,
-              descriptionEn: desc,
+              title: title,
+              description: desc,
               url: linkMatch[1],
               source: 'BBC',
               timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
             });
           }
         }
-      }
+      });
     } catch (e) {
       console.error('BBC error:', e);
     }
@@ -150,7 +120,7 @@ export async function GET() {
     const uniqueNews = [];
     const seen = new Set();
     news.forEach(n => {
-      const key = n.titleEn ? n.titleEn.substring(0, 40) : n.title.substring(0, 40);
+      const key = n.title.substring(0, 40);
       if (!seen.has(key)) {
         seen.add(key);
         uniqueNews.push(n);

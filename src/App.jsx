@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw, Languages } from 'lucide-react'
 
 function App() {
   const [markets, setMarkets] = useState({ wti: null, gold: null, vix: null, btc: null, btcChange: 0 })
   const [earthquakes, setEarthquakes] = useState([])
   const [news, setNews] = useState([])
   const [lastUpdate, setLastUpdate] = useState(null)
-  const [connected, setConnected] = useState(false)
   const [loadingNews, setLoadingNews] = useState(false)
+  const [translatingId, setTranslatingId] = useState(null)
 
   useEffect(() => {
     fetchMarkets()
@@ -55,23 +55,41 @@ function App() {
     setLoadingNews(false)
   }
 
+  const translateNews = async (item) => {
+    setTranslatingId(item.id)
+    try {
+      const text = item.description || item.title
+      const encoded = encodeURIComponent(text)
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encoded}&langpair=en|zh`)
+      const data = await res.json()
+      
+      if (data.responseData?.translatedText) {
+        setNews(news.map(n => 
+          n.id === item.id 
+            ? { ...n, titleZh: data.responseData.translatedText, translated: true }
+            : n
+        ))
+      }
+    } catch (e) {
+      console.error('Translation error:', e)
+    }
+    setTranslatingId(null)
+  }
+
   const formatTime = (ts) => {
     if (!ts) return '--:--'
     const d = new Date(ts)
     const now = new Date()
     const diff = now - d
     
-    // 小于1小时显示分钟
     if (diff < 3600000) {
       const mins = Math.floor(diff / 60000)
       return `${mins}分钟前`
     }
-    // 小于24小时显示小时
     if (diff < 86400000) {
       const hours = Math.floor(diff / 3600000)
       return `${hours}小时前`
     }
-    // 否则显示日期
     return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
   }
 
@@ -162,40 +180,49 @@ function App() {
         ) : (
           <div className="space-y-3 max-h-[500px] overflow-y-auto">
             {news.map((item, i) => (
-              <a 
+              <div 
                 key={item.id || i} 
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-4 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
+                className="p-4 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-medium text-gray-100 group-hover:text-red-400 transition-colors">
-                      {item.title}
+                    <h3 className="text-base font-medium text-gray-100">
+                      {item.titleZh || item.title}
                     </h3>
                     {item.description && (
                       <p className="text-sm text-gray-400 mt-2 line-clamp-3">
                         {item.description}
                       </p>
                     )}
-                    <div className="flex items-center gap-3 mt-3">
+                    <div className="flex items-center gap-3 mt-3 flex-wrap">
                       <span className={`px-2 py-0.5 text-xs rounded ${getSourceColor(item.source)} text-white`}>
                         {item.source}
                       </span>
-                      {item.titleEn && (
-                        <span className="text-xs text-gray-500">
-                          {item.titleEn.substring(0, 60)}{item.titleEn.length > 60 ? '...' : ''}
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-500 ml-auto">
+                      <span className="text-xs text-gray-500">
                         {formatTime(item.timestamp)}
                       </span>
+                      {!item.translated && (
+                        <button
+                          onClick={() => translateNews(item)}
+                          disabled={translatingId === item.id}
+                          className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors disabled:opacity-50"
+                        >
+                          <Languages className="w-3 h-3" />
+                          {translatingId === item.id ? '翻译中...' : '翻译'}
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <ExternalLink className="w-5 h-5 text-gray-600 group-hover:text-gray-400 flex-shrink-0 mt-1" />
+                  <a 
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0"
+                  >
+                    <ExternalLink className="w-5 h-5 text-gray-600 group-hover:text-gray-400" />
+                  </a>
                 </div>
-              </a>
+              </div>
             ))}
           </div>
         )}
