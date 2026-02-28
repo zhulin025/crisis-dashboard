@@ -158,32 +158,42 @@ function App() {
         </div>
         
         {news.length === 0 ? (
-          <p className="text-gray-500 text-sm">暂无新闻数据</p>
+          <p className="text-gray-500 text-sm">暂无新闻数据，点击刷新</p>
         ) : (
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          <div className="space-y-3 max-h-[500px] overflow-y-auto">
             {news.map((item, i) => (
               <a 
                 key={item.id || i} 
                 href={item.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block p-3 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
+                className="block p-4 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-200 group-hover:text-red-400 transition-colors line-clamp-2">
+                    <h3 className="text-base font-medium text-gray-100 group-hover:text-red-400 transition-colors">
                       {item.title}
                     </h3>
-                    <div className="flex items-center gap-2 mt-2">
+                    {item.description && (
+                      <p className="text-sm text-gray-400 mt-2 line-clamp-3">
+                        {item.description}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3 mt-3">
                       <span className={`px-2 py-0.5 text-xs rounded ${getSourceColor(item.source)} text-white`}>
                         {item.source}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      {item.titleEn && (
+                        <span className="text-xs text-gray-500">
+                          {item.titleEn.substring(0, 60)}{item.titleEn.length > 60 ? '...' : ''}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500 ml-auto">
                         {formatTime(item.timestamp)}
                       </span>
                     </div>
                   </div>
-                  <ExternalLink className="w-4 h-4 text-gray-600 group-hover:text-gray-400 flex-shrink-0 mt-1" />
+                  <ExternalLink className="w-5 h-5 text-gray-600 group-hover:text-gray-400 flex-shrink-0 mt-1" />
                 </div>
               </a>
             ))}
