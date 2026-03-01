@@ -1,7 +1,6 @@
-// /api/news.js - 新闻聚合 (Reuters, BBC, GDELT)
+// /api/news.js - 新闻聚合 (使用更可靠的 RSS 源)
 export const runtime = 'nodejs';
 
-// 清理标题中的特殊字符
 function cleanTitle(title) {
   if (!title) return '';
   return title
@@ -12,134 +11,119 @@ function cleanTitle(title) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/\|/g, ' ')
+    .replace(/<[^>]+>/g, '')
     .trim();
 }
 
-export async function GET() {
+async function fetchWithTimeout(url, timeout = 8000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
   try {
-    const news = [];
-    const now = Date.now();
-
-    // 1. GDELT 新闻 (伊朗/中东)
-    try {
-      const gdeltRes = await fetch(
-        `https://api.gdeltproject.org/api/v2/doc/doc?query=iran OR israel OR "middle east" OR oil&mode=artlist&maxrecords=15&format=json`,
-        { headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-      const gdeltData = await gdeltRes.json();
-      
-      if (gdeltData.articles) {
-        gdeltData.articles.forEach(article => {
-          const title = cleanTitle(article.title);
-          if (title) {
-            news.push({
-              id: `gdelt-${article.url}`,
-              title: title,
-              url: article.url,
-              source: article.domain || 'GDELT',
-              timestamp: new Date(article.seendate).getTime()
-            });
-          }
-        });
-      }
-    } catch (e) {
-      console.error('GDELT error:', e);
-    }
-
-    // 2. Reuters RSS (伊朗/中东)
-    try {
-      const reutersRes = await fetch(
-        'https://www.reutersagency.com/feed/?best-regions=middle-east&post_type=best',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-      const reutersText = await reutersRes.text();
-      
-      const itemMatches = reutersText.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
-      itemMatches.slice(0, 15).forEach(item => {
-        const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/);
-        const linkMatch = item.match(/<link>(.*?)<\/link>/);
-        const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
-        const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>|<description>(.*?)<\/description>/);
-        
-        if (titleMatch && linkMatch) {
-          const title = cleanTitle(titleMatch[1] || titleMatch[2]);
-          const desc = descMatch ? cleanTitle(descMatch[1] || descMatch[2]) : '';
-          
-          if (title && (title.toLowerCase().includes('iran') || title.toLowerCase().includes('israel') || title.toLowerCase().includes('middle east') || title.toLowerCase().includes('oil') || title.toLowerCase().includes('war'))) {
-            news.push({
-              id: `reuters-${linkMatch[1]}`,
-              title: title,
-              description: desc,
-              url: linkMatch[1],
-              source: 'Reuters',
-              timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
-            });
-          }
-        }
-      });
-    } catch (e) {
-      console.error('Reuters error:', e);
-    }
-
-    // 3. BBC News (中东)
-    try {
-      const bbcRes = await fetch(
-        'https://feeds.bbci.co.uk/news/world/middle_east/rss.xml',
-        { headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-      const bbcText = await bbcRes.text();
-      
-      const bbcItems = bbcText.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
-      bbcItems.slice(0, 15).forEach(item => {
-        const titleMatch = item.match(/<title>(.*?)<\/title>/);
-        const linkMatch = item.match(/<link>(.*?)<\/link>/);
-        const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
-        const descMatch = item.match(/<description>(.*?)<\/description>/);
-        
-        if (titleMatch && linkMatch) {
-          const title = cleanTitle(titleMatch[1]);
-          const desc = descMatch ? cleanTitle(descMatch[1]) : '';
-          
-          if (title && (title.toLowerCase().includes('iran') || title.toLowerCase().includes('israel') || title.toLowerCase().includes('middle east') || title.toLowerCase().includes('war'))) {
-            news.push({
-              id: `bbc-${linkMatch[1]}`,
-              title: title,
-              description: desc,
-              url: linkMatch[1],
-              source: 'BBC',
-              timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
-            });
-          }
-        }
-      });
-    } catch (e) {
-      console.error('BBC error:', e);
-    }
-
-    // 按时间排序，去重
-    const uniqueNews = [];
-    const seen = new Set();
-    news.forEach(n => {
-      const key = n.title.substring(0, 40);
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueNews.push(n);
-      }
+    const res = await fetch(url, { 
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: controller.signal 
     });
-
-    uniqueNews.sort((a, b) => b.timestamp - a.timestamp);
-
-    return new Response(JSON.stringify({
-      news: uniqueNews.slice(0, 25),
-      count: uniqueNews.length,
-      updated: new Date().toISOString()
-    }), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' }
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    clearTimeout(id);
+    return res;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
   }
+}
+
+export async function GET() {
+  const news = [];
+  const now = Date.now();
+
+  // 1. 使用 Google News RSS (伊朗/以色列)
+  try {
+    const rssUrls = [
+      { url: 'https://news.google.com/rss/search?q=Iran+Israel+war&hl=en-US&gl=US&ceid=US:en', source: 'Google News' },
+      { url: 'https://news.google.com/rss/search?q=Iran+oil+attack&hl=en-US&gl=US&ceid=US:en', source: 'Google News' },
+      { url: 'https://news.google.com/rss/search?q=Middle+East+crisis&hl=en-US&gl=US&ceid=US:en', source: 'Google News' }
+    ];
+
+    for (const { url, source } of rssUrls) {
+      try {
+        const res = await fetchWithTimeout(url, 5000);
+        const text = await res.text();
+        const items = text.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
+        
+        for (const item of items.slice(0, 8)) {
+          const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/);
+          const linkMatch = item.match(/<link>(.*?)<\/link>/);
+          const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
+          
+          if (titleMatch && linkMatch) {
+            const title = cleanTitle(titleMatch[1] || titleMatch[2]);
+            if (title && title !== '[Removed]') {
+              news.push({
+                id: `gn-${linkMatch[1]}`,
+                title: title,
+                url: linkMatch[1],
+                source: source,
+                timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`Google News error:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('News fetch error:', e);
+  }
+
+  // 2. Al Jazeera RSS
+  try {
+    const aljRes = await fetchWithTimeout('https://www.aljazeera.com/xml/rss/all.xml', 5000);
+    const aljText = await aljRes.text();
+    const aljItems = aljText.match(/<item[^>]*>([\s\S]*?)<\/item>/g) || [];
+    
+    for (const item of aljItems.slice(0, 10)) {
+      const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/);
+      const linkMatch = item.match(/<link>(.*?)<\/link>/);
+      const dateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
+      
+      if (titleMatch && linkMatch) {
+        const title = cleanTitle(titleMatch[1] || titleMatch[2]);
+        if (title && (title.toLowerCase().includes('iran') || title.toLowerCase().includes('israel') || title.toLowerCase().includes('middle east') || title.toLowerCase().includes('gaza') || title.toLowerCase().includes('war'))) {
+          news.push({
+            id: `alj-${linkMatch[1]}`,
+            title: title,
+            url: linkMatch[1],
+            source: 'Al Jazeera',
+            timestamp: dateMatch ? new Date(dateMatch[1]).getTime() : now
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Al Jazeera error:', e.message);
+  }
+
+  // 去重 & 排序
+  const uniqueNews = [];
+  const seen = new Set();
+  news.forEach(n => {
+    const key = n.title.substring(0, 50);
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueNews.push(n);
+    }
+  });
+
+  uniqueNews.sort((a, b) => b.timestamp - a.timestamp);
+
+  return new Response(JSON.stringify({
+    news: uniqueNews.slice(0, 20),
+    count: uniqueNews.length,
+    updated: new Date().toISOString()
+  }), {
+    headers: { 
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache'
+    }
+  });
 }
