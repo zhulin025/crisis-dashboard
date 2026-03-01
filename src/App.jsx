@@ -205,14 +205,19 @@ function App() {
 
         {/* Events List */}
         <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
-          {missiles.events.slice(0, 8).map((event) => (
+          {missiles.events.slice(0, 10).map((event) => (
             <div 
               key={event.id} 
               className={`p-2 rounded-lg text-sm flex items-center gap-2 ${
-                event.type === 'interception' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+                event.type === 'interception' ? 'bg-green-900/30 text-green-400' : 
+                event.type === 'israel_strike' ? 'bg-red-900/50 text-red-300' :
+                'bg-indigo-900/30 text-indigo-400'
               }`}
             >
-              <span>{event.type === 'interception' ? '🛡️' : '🚀'}</span>
+              <span>
+                {event.type === 'interception' ? '🛡️' : 
+                 event.type === 'israel_strike' ? '💥' : '🚀'}
+              </span>
               <span className="flex-1">{event.title}</span>
               <span className="text-xs text-gray-500">{formatTime(event.time)}</span>
             </div>
@@ -366,50 +371,53 @@ function MissileMap({ missiles }) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       
-      {/* 导弹轨迹 */}
-      {missiles.missiles?.map((msl) => (
+      {/* 导弹轨迹 - 弧线 */}
+      {missiles.missiles?.map((msl, idx) => (
         <Polyline
           key={msl.id}
-          positions={[
+          positions={msl.arc || [
             [msl.from.lat, msl.from.lon],
             [msl.to.lat, msl.to.lon]
           ]}
           pathOptions={{ 
-            color: msl.status === 'impacted' ? '#ef4444' : '#f97316',
-            weight: 2,
-            dashArray: msl.status === 'in-flight' ? '5, 10' : undefined
+            // 深蓝色和深紫色交替
+            color: idx % 2 === 0 ? '#312e81' : '#581c87', // 深蓝 #312e81 / 深紫 #581c87
+            weight: 3,
+            opacity: 0.9,
+            dashArray: msl.status === 'in-flight' ? '10, 5' : undefined,
+            lineCap: 'round'
           }}
         />
       ))}
 
-      {/* 发射点 (伊朗) */}
+      {/* 发射点 (伊朗) - 深蓝色 */}
       {missiles.missiles?.map((msl) => (
         <CircleMarker
           key={`from-${msl.id}`}
           center={[msl.from.lat, msl.from.lon]}
-          radius={6}
-          pathOptions={{ color: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.8 }}
+          radius={7}
+          pathOptions={{ color: '#312e81', fillColor: '#312e81', fillOpacity: 0.9 }}
         >
           <Popup>
             <div className="text-sm">
-              <strong>发射点</strong><br/>
+              <strong>🚀 发射点</strong><br/>
               {msl.from.name}
             </div>
           </Popup>
         </CircleMarker>
       ))}
 
-      {/* 目标点 (以色列/美国基地) */}
+      {/* 目标点 (以色列/美国基地) - 深紫色 */}
       {missiles.missiles?.map((msl) => (
         <CircleMarker
           key={`to-${msl.id}`}
           center={[msl.to.lat, msl.to.lon]}
-          radius={8}
-          pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.8 }}
+          radius={9}
+          pathOptions={{ color: '#581c87', fillColor: '#581c87', fillOpacity: 0.9 }}
         >
           <Popup>
             <div className="text-sm">
-              <strong>目标</strong><br/>
+              <strong>🎯 目标</strong><br/>
               {msl.to.name}<br/>
               <span className="text-xs text-gray-500">{msl.type}</span>
             </div>
@@ -417,17 +425,34 @@ function MissileMap({ missiles }) {
         </CircleMarker>
       ))}
 
-      {/* 拦截事件 */}
+      {/* 拦截事件 - 绿色 */}
       {missiles.events?.filter(e => e.type === 'interception').map((evt) => (
         <CircleMarker
           key={evt.id}
           center={[evt.location.lat, evt.location.lon]}
           radius={10}
-          pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.6 }}
+          pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.7 }}
         >
           <Popup>
             <div className="text-sm">
-              <strong>拦截</strong><br/>
+              <strong>🛡️ 拦截</strong><br/>
+              {evt.title}
+            </div>
+          </Popup>
+        </CircleMarker>
+      ))}
+
+      {/* 以色列反击 - 红色 */}
+      {missiles.events?.filter(e => e.type === 'israel_strike').map((evt) => (
+        <CircleMarker
+          key={evt.id}
+          center={[evt.location.lat, evt.location.lon]}
+          radius={11}
+          pathOptions={{ color: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.8 }}
+        >
+          <Popup>
+            <div className="text-sm">
+              <strong>💥 以色列空袭</strong><br/>
               {evt.title}
             </div>
           </Popup>
