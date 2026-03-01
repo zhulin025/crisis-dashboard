@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw, Languages, Crosshair, Target } from 'lucide-react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, SVGOverlay } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 
@@ -355,9 +355,72 @@ function App() {
   )
 }
 
-// 导弹地图组件
+// 导弹地图组件 - 卡通风格动画版
 function MissileMap({ missiles }) {
-  const center = [30, 48] // 中东中心
+  const center = [30, 48]
+  const [animatedMissiles, setAnimatedMissiles] = useState([])
+  const [explosions, setExplosions] = useState([])
+  const animationRef = useRef(null)
+  
+  // 动画循环
+  useEffect(() => {
+    if (!missiles.missiles?.length) return
+    
+    // 初始化导弹位置
+    setAnimatedMissiles(missiles.missiles.map(msl => ({
+      ...msl,
+      progress: msl.status === 'impacted' ? 100 : Math.random() * 30
+    })))
+    
+    const animate = () => {
+      setAnimatedMissiles(prev => {
+        return prev.map(msl => {
+          if (msl.status === 'impacted') return msl
+          if (!msl.arc || msl.arc.length < 2) return msl
+          
+          const newProgress = msl.progress + 1.5
+          
+          // 到达目标时触发爆炸
+          if (newProgress >= 100 && msl.progress < 100) {
+            setExplosions(prev => [...prev, {
+              id: `exp-${msl.id}-${Date.now()}`,
+              lat: msl.to.lat,
+              lon: msl.to.lon,
+              createdAt: Date.now()
+            }])
+          }
+          
+          return {
+            ...msl,
+            progress: Math.min(newProgress, 100),
+            status: newProgress >= 100 ? 'impacted' : 'in-flight'
+          }
+        })
+      })
+      
+      // 清理旧爆炸效果
+      setExplosions(prev => prev.filter(e => Date.now() - e.createdAt < 2000))
+      
+      animationRef.current = requestAnimationFrame(animate)
+    }
+    
+    animationRef.current = requestAnimationFrame(animate)
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [missiles.missiles])
+  
+  // 获取弧线上的当前位置
+  const getPositionOnArc = (msl) => {
+    if (!msl.arc || msl.arc.length < 2) {
+      return [msl.from.lat, msl.from.lon]
+    }
+    const idx = Math.floor((msl.progress / 100) * (msl.arc.length - 1))
+    return msl.arc[Math.min(idx, msl.arc.length - 1)]
+  }
   
   return (
     <MapContainer 
@@ -367,97 +430,232 @@ function MissileMap({ missiles }) {
       className="rounded-lg"
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        attribution='&copy; OpenStreetMap'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       
-      {/* 导弹轨迹 - 弧线 */}
+      {/* 导弹轨迹 - 虚线弧线 */}
       {missiles.missiles?.map((msl, idx) => (
         <Polyline
-          key={msl.id}
-          positions={msl.arc || [
-            [msl.from.lat, msl.from.lon],
-            [msl.to.lat, msl.to.lon]
-          ]}
+          key={`track-${msl.id}`}
+          positions={msl.arc || [[msl.from.lat, msl.from.lon], [msl.to.lat, msl.to.lon]]}
           pathOptions={{ 
-            // 深蓝色和深紫色交替
-            color: idx % 2 === 0 ? '#312e81' : '#581c87', // 深蓝 #312e81 / 深紫 #581c87
-            weight: 3,
-            opacity: 0.9,
-            dashArray: msl.status === 'in-flight' ? '10, 5' : undefined,
+            color: idx % 2 === 0 ? '#4f46e5' : '#7c3aed',
+            weight: 2,
+            opacity: 0.4,
+            dashArray: '8, 12',
             lineCap: 'round'
           }}
         />
       ))}
-
-      {/* 发射点 (伊朗) - 深蓝色 */}
-      {missiles.missiles?.map((msl) => (
-        <CircleMarker
-          key={`from-${msl.id}`}
-          center={[msl.from.lat, msl.from.lon]}
-          radius={7}
-          pathOptions={{ color: '#312e81', fillColor: '#312e81', fillOpacity: 0.9 }}
+      
+      {/* 飞行中的导弹 - 卡通火箭图标 */}
+      {animatedMissiles?.filter(msl => msl.status === 'in-flight').map((msl) => {
+        const pos = getPositionOnArc(msl)
+        return (
+          <Marker
+            key={`missile-${msl.id}`}
+            position={pos}
+            icon={L.divIcon({
+              className: 'missile-marker',
+              html: `<div style="
+                width: 24px;
+                height: 24px;
+                background: linear-gradient(135deg, #fbbf24 0%, #f97316 100%);
+                border-radius: 50% 50% 50% 0;
+                transform: rotate(-45deg);
+                box-shadow: 0 0 10px #f97316, 0 0 20px #fbbf24;
+                animation: pulse 0.5s infinite;
+              "></div>`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            })}
+          >
+            <Popup>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '20px' }}>🚀</div>
+                <strong>{msl.type}</strong><br/>
+                {msl.from.name} → {msl.to.name}
+              </div>
+            </Popup>
+          </Marker>
+        )
+      })}
+      
+      {/* 已爆炸标记 - 卡通爆炸效果 */}
+      {explosions.map(exp => (
+        <Marker
+          key={exp.id}
+          position={[exp.lat, exp.lon]}
+          icon={L.divIcon({
+            className: 'explosion-marker',
+            html: `<div style="
+              width: 40px;
+              height: 40px;
+              background: radial-gradient(circle, #fbbf24 0%, #f97316 40%, #ef4444 70%, transparent 100%);
+              border-radius: 50%;
+              animation: explode 0.8s ease-out forwards;
+              transform: translate(-20px, -20px);
+            "></div>`,
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
+          })}
         >
           <Popup>
-            <div className="text-sm">
-              <strong>🚀 发射点</strong><br/>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '24px' }}>💥</div>
+              <strong>爆炸</strong>
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+      
+      {/* 发射点 - 卡通火箭基地 */}
+      {missiles.missiles?.map((msl) => (
+        <Marker
+          key={`from-${msl.id}`}
+          position={[msl.from.lat, msl.from.lon]}
+          icon={L.divIcon({
+            className: 'base-marker',
+            html: `<div style="
+              width: 30px;
+              height: 30px;
+              background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
+              border-radius: 8px 8px 50% 50%;
+              border: 3px solid #60a5fa;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 16px;
+              box-shadow: 0 4px 12px rgba(30, 58, 138, 0.5);
+            ">🇮🇷</div>`,
+            iconSize: [30, 30],
+            iconAnchor: [15, 30]
+          })}
+        >
+          <Popup>
+            <div style={{ textAlign: 'center' }}>
+              <strong>🚁 伊朗发射基地</strong><br/>
               {msl.from.name}
             </div>
           </Popup>
-        </CircleMarker>
+        </Marker>
       ))}
-
-      {/* 目标点 (以色列/美国基地) - 深紫色 */}
+      
+      {/* 目标点 - 卡通目标 */}
       {missiles.missiles?.map((msl) => (
-        <CircleMarker
+        <Marker
           key={`to-${msl.id}`}
-          center={[msl.to.lat, msl.to.lon]}
-          radius={9}
-          pathOptions={{ color: '#581c87', fillColor: '#581c87', fillOpacity: 0.9 }}
+          position={[msl.to.lat, msl.to.lon]}
+          icon={L.divIcon({
+            className: 'target-marker',
+            html: `<div style="
+              width: 32px;
+              height: 32px;
+              background: linear-gradient(180deg, #7c3aed 0%, #5b21b6 100%);
+              border-radius: 50%;
+              border: 3px solid #a78bfa;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 14px;
+              box-shadow: 0 4px 12px rgba(124, 58, 237, 0.5);
+            ">🎯</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          })}
         >
           <Popup>
-            <div className="text-sm">
+            <div style={{ textAlign: 'center' }}>
               <strong>🎯 目标</strong><br/>
               {msl.to.name}<br/>
-              <span className="text-xs text-gray-500">{msl.type}</span>
+              <span style={{ fontSize: '12px', color: '#666' }}>{msl.type}</span>
             </div>
           </Popup>
-        </CircleMarker>
+        </Marker>
       ))}
-
-      {/* 拦截事件 - 绿色 */}
+      
+      {/* 拦截事件 - 卡通盾牌 */}
       {missiles.events?.filter(e => e.type === 'interception').map((evt) => (
-        <CircleMarker
+        <Marker
           key={evt.id}
-          center={[evt.location.lat, evt.location.lon]}
-          radius={10}
-          pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.7 }}
+          position={[evt.location.lat, evt.location.lon]}
+          icon={L.divIcon({
+            className: 'intercept-marker',
+            html: `<div style="
+              width: 28px;
+              height: 28px;
+              background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+              border-radius: 50%;
+              border: 3px solid #86efac;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 14px;
+              box-shadow: 0 0 15px #22c55e;
+              animation: shield 1s infinite;
+            ">🛡️</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+          })}
         >
           <Popup>
-            <div className="text-sm">
-              <strong>🛡️ 拦截</strong><br/>
+            <div style={{ textAlign: 'center' }}>
+              <strong>🛡️ 拦截成功</strong><br/>
               {evt.title}
             </div>
           </Popup>
-        </CircleMarker>
+        </Marker>
       ))}
-
-      {/* 以色列反击 - 红色 */}
+      
+      {/* 以色列反击 - 卡通炸弹 */}
       {missiles.events?.filter(e => e.type === 'israel_strike').map((evt) => (
-        <CircleMarker
+        <Marker
           key={evt.id}
-          center={[evt.location.lat, evt.location.lon]}
-          radius={11}
-          pathOptions={{ color: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.8 }}
+          position={[evt.location.lat, evt.location.lon]}
+          icon={L.divIcon({
+            className: 'israel-marker',
+            html: `<div style="
+              width: 30px;
+              height: 30px;
+              background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
+              border-radius: 50%;
+              border: 3px solid #fca5a5;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 16px;
+              box-shadow: 0 0 15px #ef4444;
+            ">💣</div>`,
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+          })}
         >
           <Popup>
-            <div className="text-sm">
-              <strong>💥 以色列空袭</strong><br/>
+            <div style={{ textAlign: 'center' }}>
+              <strong>💥 以色列反击</strong><br/>
               {evt.title}
             </div>
           </Popup>
-        </CircleMarker>
+        </Marker>
       ))}
+      
+      {/* 添加动画样式 */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: rotate(-45deg) scale(1); }
+          50% { transform: rotate(-45deg) scale(1.1); }
+        }
+        @keyframes explode {
+          0% { transform: translate(-20px, -20px) scale(0.5); opacity: 1; }
+          50% { transform: translate(-20px, -20px) scale(1.5); opacity: 0.8; }
+          100% { transform: translate(-20px, -20px) scale(2); opacity: 0; }
+        }
+        @keyframes shield {
+          0%, 100% { box-shadow: 0 0 15px #22c55e; }
+          50% { box-shadow: 0 0 25px #22c55e, 0 0 35px #86efac; }
+        }
+      `}</style>
     </MapContainer>
   )
 }
