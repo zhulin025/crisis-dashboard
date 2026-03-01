@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw, Languages } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, AlertTriangle, MapPin, Globe, Clock, Newspaper, ExternalLink, RefreshCw, Languages, Crosshair, Target } from 'lucide-react'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
+
+// 修复 Leaflet 图标问题
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+})
 
 function App() {
   const [markets, setMarkets] = useState({ wti: null, gold: null, vix: null, btc: null, btcChange: 0 })
   const [earthquakes, setEarthquakes] = useState([])
   const [news, setNews] = useState([])
+  const [missiles, setMissiles] = useState({ missiles: [], events: [] })
   const [lastUpdate, setLastUpdate] = useState(null)
   const [loadingNews, setLoadingNews] = useState(false)
   const [translatingId, setTranslatingId] = useState(null)
@@ -13,11 +25,13 @@ function App() {
     fetchMarkets()
     fetchEarthquakes()
     fetchNews()
+    fetchMissiles()
 
     const interval = setInterval(() => {
       fetchMarkets()
       fetchNews()
-    }, 60000)
+      fetchMissiles()
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [])
@@ -53,6 +67,16 @@ function App() {
       console.error('Failed to fetch news:', e)
     }
     setLoadingNews(false)
+  }
+
+  const fetchMissiles = async () => {
+    try {
+      const res = await fetch('/api/missiles')
+      const data = await res.json()
+      setMissiles(data)
+    } catch (e) {
+      console.error('Failed to fetch missiles:', e)
+    }
   }
 
   const translateNews = async (item) => {
@@ -98,7 +122,8 @@ function App() {
       'Reuters': 'bg-orange-600',
       'BBC': 'bg-green-600',
       'GDELT': 'bg-blue-600',
-      'Al Jazeera': 'bg-purple-600'
+      'Al Jazeera': 'bg-purple-600',
+      'Google News': 'bg-blue-500'
     }
     return colors[source] || 'bg-gray-600'
   }
@@ -157,6 +182,44 @@ function App() {
         />
       </div>
 
+      {/* Missile Map */}
+      <div className="bg-[#141414] rounded-xl p-4 border border-gray-800 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-red-500" />
+            <h2 className="font-semibold">导弹动态地图</h2>
+            <span className="text-xs text-red-400">({missiles.events.length}个事件)</span>
+          </div>
+          <button 
+            onClick={fetchMissiles}
+            className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" />
+            刷新
+          </button>
+        </div>
+
+        <div className="h-[400px] rounded-lg overflow-hidden">
+          <MissileMap missiles={missiles} />
+        </div>
+
+        {/* Events List */}
+        <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
+          {missiles.events.slice(0, 8).map((event) => (
+            <div 
+              key={event.id} 
+              className={`p-2 rounded-lg text-sm flex items-center gap-2 ${
+                event.type === 'interception' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'
+              }`}
+            >
+              <span>{event.type === 'interception' ? '🛡️' : '🚀'}</span>
+              <span className="flex-1">{event.title}</span>
+              <span className="text-xs text-gray-500">{formatTime(event.time)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* News Section */}
       <div className="bg-[#141414] rounded-xl p-4 border border-gray-800 mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -178,8 +241,8 @@ function App() {
         {news.length === 0 ? (
           <p className="text-gray-500 text-sm">暂无新闻数据，点击刷新</p>
         ) : (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto">
-            {news.map((item, i) => (
+          <div className="space-y-3 max-h-[400px] overflow-y-auto">
+            {news.slice(0, 10).map((item, i) => (
               <div 
                 key={item.id || i} 
                 className="p-4 bg-[#1a1a1a] rounded-lg hover:bg-[#222] transition-colors group"
@@ -190,16 +253,13 @@ function App() {
                       {item.titleZh || item.title}
                     </h3>
                     {item.description && (
-                      <p className="text-sm text-gray-400 mt-2 line-clamp-3">
+                      <p className="text-sm text-gray-400 mt-2 line-clamp-2">
                         {item.description}
                       </p>
                     )}
                     <div className="flex items-center gap-3 mt-3 flex-wrap">
                       <span className={`px-2 py-0.5 text-xs rounded ${getSourceColor(item.source)} text-white`}>
                         {item.source}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatTime(item.timestamp)}
                       </span>
                       {!item.translated && (
                         <button
@@ -241,7 +301,7 @@ function App() {
             <p className="text-gray-500 text-sm">暂无地震数据</p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {earthquakes.map((eq, i) => (
+              {earthquakes.slice(0, 10).map((eq, i) => (
                 <div key={eq.id || i} className="flex items-center justify-between p-2 bg-[#1a1a1a] rounded-lg text-sm">
                   <div className="flex items-center gap-2">
                     <span className={`font-bold ${eq.magnitude >= 4 ? 'text-red-400' : 'text-yellow-400'}`}>
@@ -264,10 +324,10 @@ function App() {
           </div>
           
           <div className="grid grid-cols-2 gap-3">
-            <SourceItem label="Reuters" status="active" />
-            <SourceItem label="BBC News" status="active" />
-            <SourceItem label="GDELT" status="active" />
+            <SourceItem label="Google News" status="active" />
+            <SourceItem label="Al Jazeera" status="active" />
             <SourceItem label="USGS 地震" status="active" />
+            <SourceItem label="导弹动态" status="active" />
             <SourceItem label="Yahoo Finance" status={markets.wti ? 'active' : 'inactive'} />
             <SourceItem label="CoinGecko" status={markets.btc ? 'active' : 'inactive'} />
           </div>
@@ -275,7 +335,7 @@ function App() {
           <div className="mt-4 pt-4 border-t border-gray-800">
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Clock className="w-3 h-3" />
-              <span>数据刷新间隔: 60s</span>
+              <span>数据刷新间隔: 30s</span>
             </div>
           </div>
         </div>
@@ -287,6 +347,93 @@ function App() {
         <p className="mt-1">数据仅供参考，不构成投资建议</p>
       </footer>
     </div>
+  )
+}
+
+// 导弹地图组件
+function MissileMap({ missiles }) {
+  const center = [30, 48] // 中东中心
+  
+  return (
+    <MapContainer 
+      center={center} 
+      zoom={5} 
+      style={{ height: '100%', width: '100%' }}
+      className="rounded-lg"
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      
+      {/* 导弹轨迹 */}
+      {missiles.missiles?.map((msl) => (
+        <Polyline
+          key={msl.id}
+          positions={[
+            [msl.from.lat, msl.from.lon],
+            [msl.to.lat, msl.to.lon]
+          ]}
+          pathOptions={{ 
+            color: msl.status === 'impacted' ? '#ef4444' : '#f97316',
+            weight: 2,
+            dashArray: msl.status === 'in-flight' ? '5, 10' : undefined
+          }}
+        />
+      ))}
+
+      {/* 发射点 (伊朗) */}
+      {missiles.missiles?.map((msl) => (
+        <CircleMarker
+          key={`from-${msl.id}`}
+          center={[msl.from.lat, msl.from.lon]}
+          radius={6}
+          pathOptions={{ color: '#dc2626', fillColor: '#dc2626', fillOpacity: 0.8 }}
+        >
+          <Popup>
+            <div className="text-sm">
+              <strong>发射点</strong><br/>
+              {msl.from.name}
+            </div>
+          </Popup>
+        </CircleMarker>
+      ))}
+
+      {/* 目标点 (以色列/美国基地) */}
+      {missiles.missiles?.map((msl) => (
+        <CircleMarker
+          key={`to-${msl.id}`}
+          center={[msl.to.lat, msl.to.lon]}
+          radius={8}
+          pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.8 }}
+        >
+          <Popup>
+            <div className="text-sm">
+              <strong>目标</strong><br/>
+              {msl.to.name}<br/>
+              <span className="text-xs text-gray-500">{msl.type}</span>
+            </div>
+          </Popup>
+        </CircleMarker>
+      ))}
+
+      {/* 拦截事件 */}
+      {missiles.events?.filter(e => e.type === 'interception').map((evt) => (
+        <CircleMarker
+          key={evt.id}
+          center={[evt.location.lat, evt.location.lon]}
+          radius={10}
+          pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 0.6 }}
+        >
+          <Popup>
+            <div className="text-sm">
+              <strong>拦截</strong><br/>
+              {evt.title}
+            </div>
+          </Popup>
+        </CircleMarker>
+      ))}
+    </MapContainer>
   )
 }
 
